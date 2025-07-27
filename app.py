@@ -239,6 +239,8 @@ async def send_email(
     </html>
     """
 
+from user_agents import parse  # Optional but better
+
 @app.get("/track")
 async def track_email(request: Request, id: str):
     user_agent = request.headers.get("user-agent", "").lower()
@@ -259,9 +261,13 @@ async def track_email(request: Request, id: str):
         "java",              # bots
     ]
 
-    # Skip logging if it’s a known bot
     if any(bot in user_agent for bot in KNOWN_BOTS):
-        logger.info(f"Skipping bot/open scanner: {user_agent}")
+        logger.info(f"Skipping known bot or scanner: {user_agent}")
+        return Response(content=PIXEL_GIF, media_type="image/gif")
+
+    # ❗ NEW: Skip Gmail proxy IPs
+    if ip.startswith("74.125.") or ip.startswith("209.85."):
+        logger.info(f"Skipping Gmail proxy IP: {ip}")
         return Response(content=PIXEL_GIF, media_type="image/gif")
 
     # Load mapping to get email from id
@@ -270,13 +276,12 @@ async def track_email(request: Request, id: str):
 
     if id not in mapping:
         logger.warning(f"Unknown tracking id: {id}")
-        # Return pixel anyway (avoid exposing info)
         return Response(content=PIXEL_GIF, media_type="image/gif")
 
     email = mapping[id]["email"]
 
     # Log the open event
-    logger.info(f"Email open detected: id={id}, email={email}, IP={ip}, UA={user_agent}")
+    logger.info(f"✅ Real email open: id={id}, email={email}, IP={ip}, UA={user_agent}")
 
     with open(DATA_FILE, "r") as f:
         data = json.load(f)
@@ -293,7 +298,6 @@ async def track_email(request: Request, id: str):
         json.dump(data, f, indent=2)
 
     return Response(content=PIXEL_GIF, media_type="image/gif")
-
 
 @app.get("/logs", response_class=HTMLResponse)
 async def view_logs():
