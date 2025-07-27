@@ -55,22 +55,25 @@ async def root():
             background: white;
             padding: 20px;
             border-radius: 8px;
-            max-width: 400px;
+            max-width: 600px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
           }
           label {
             font-weight: 600;
+            display: block;
+            margin-top: 15px;
           }
-          input[type=email] {
+          input[type=text], textarea {
             width: 100%;
             padding: 10px;
             margin-top: 6px;
-            margin-bottom: 20px;
             border: 1px solid #ccc;
             border-radius: 4px;
             font-size: 1rem;
+            resize: vertical;
           }
           button {
+            margin-top: 20px;
             background-color: #4a90e2;
             border: none;
             color: white;
@@ -97,101 +100,120 @@ async def root():
       <body>
         <h1>Email Tracker</h1>
         <form action="/send-email" method="post">
-          <label for="recipient_email">Recipient Email:</label><br>
-          <input type="email" id="recipient_email" name="recipient_email" required><br>
+          <label for="recipient_emails">Recipient Emails (comma separated):</label>
+          <textarea id="recipient_emails" name="recipient_emails" required rows="3" placeholder="e.g. alice@example.com, bob@example.com"></textarea>
+          
+          <label for="subject">Subject:</label>
+          <input type="text" id="subject" name="subject" required placeholder="Email subject here">
+          
+          <label for="body">Body (HTML allowed):</label>
+          <textarea id="body" name="body" required rows="8" placeholder="Write your email body here..."></textarea>
+          
           <button type="submit">Send Tracked Email</button>
         </form>
         <p>Check <a href="/logs">Logs</a> to see who opened emails.</p>
+        <p><a href="/download-logs" download>Download Logs JSON</a></p>
+
       </body>
     </html>
     """
 
 @app.post("/send-email", response_class=HTMLResponse)
-async def send_email(recipient_email: str = Form(...)):
-    tracking_url = f"https://fastapi-email-tracker.onrender.com/track?email={recipient_email}"
+async def send_email(
+    recipient_emails: str = Form(...),  # comma separated emails
+    subject: str = Form(...),
+    body: str = Form(...)
+):
+    recipients = [email.strip() for email in recipient_emails.split(",") if email.strip()]
+    sent_to = []
+    errors = []
 
-    html_content = f"""
+    for recipient_email in recipients:
+        tracking_url = f"https://fastapi-email-tracker.onrender.com/track?email={recipient_email}"
+
+        # Append tracking pixel to body
+        html_content = f"""
+        <html>
+          <body>
+            {body}
+            <img src="{tracking_url}" width="1" height="1" alt="" style="display:none;" />
+          </body>
+        </html>
+        """
+
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = SMTP_USERNAME
+        msg["To"] = recipient_email
+        msg.set_content("This email requires an HTML-capable client.")
+        msg.add_alternative(html_content, subtype="html")
+
+        try:
+            with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+                server.starttls()
+                server.login(SMTP_USERNAME, SMTP_PASSWORD)
+                server.send_message(msg)
+            logger.info(f"Email sent successfully to {recipient_email}")
+            sent_to.append(recipient_email)
+        except Exception as e:
+            logger.error(f"Failed to send email to {recipient_email}: {e}")
+            errors.append((recipient_email, str(e)))
+
+    success_html = ""
+    if sent_to:
+        success_html += "<h3>Emails sent successfully to:</h3><ul>"
+        for s in sent_to:
+            success_html += f"<li>{s}</li>"
+        success_html += "</ul>"
+
+    error_html = ""
+    if errors:
+        error_html += "<h3 style='color:#c0392b;'>Errors sending to:</h3><ul>"
+        for e_mail, err_msg in errors:
+            error_html += f"<li>{e_mail}: {err_msg}</li>"
+        error_html += "</ul>"
+
+    return f"""
     <html>
+      <head>
+        <style>
+          body {{
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f9fafb;
+            padding: 20px;
+            color: #333;
+          }}
+          h3 {{
+            color: #4a90e2;
+          }}
+          a {{
+            color: #4a90e2;
+            text-decoration: none;
+            margin-right: 10px;
+          }}
+          a:hover {{
+            text-decoration: underline;
+          }}
+          ul {{
+            max-width: 400px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+          }}
+          li {{
+            margin-bottom: 5px;
+          }}
+        </style>
+      </head>
       <body>
-        <p>Hello,</p>
-        <p>This is a test email with tracking.</p>
-        <img src="{tracking_url}" width="1" height="1" alt="" />
+        {success_html}
+        {error_html}
+        <p><a href='/'>Send another</a> | <a href='/logs'>View logs</a></p>
+       
       </body>
     </html>
     """
-
-    msg = EmailMessage()
-    msg["Subject"] = "Test Email with Tracking Pixel"
-    msg["From"] = SMTP_USERNAME
-    msg["To"] = recipient_email
-    msg.set_content("This is a test email with tracking (HTML not supported).")
-    msg.add_alternative(html_content, subtype="html")
-
-    try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USERNAME, SMTP_PASSWORD)
-            server.send_message(msg)
-        logger.info(f"Email sent successfully to {recipient_email}")
-        return f"""
-        <html>
-          <head>
-            <style>
-              body {{
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: #f9fafb;
-                padding: 20px;
-                color: #333;
-              }}
-              h3 {{
-                color: #4a90e2;
-              }}
-              a {{
-                color: #4a90e2;
-                text-decoration: none;
-                margin-right: 10px;
-              }}
-              a:hover {{
-                text-decoration: underline;
-              }}
-            </style>
-          </head>
-          <body>
-            <h3>Email sent to {recipient_email} successfully!</h3>
-            <p><a href='/'>Send another</a> | <a href='/logs'>View logs</a></p>
-          </body>
-        </html>
-        """
-    except Exception as e:
-        logger.error(f"Failed to send email to {recipient_email}: {e}")
-        return f"""
-        <html>
-          <head>
-            <style>
-              body {{
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                background: #f9fafb;
-                padding: 20px;
-                color: #c0392b;
-              }}
-              h3 {{
-                color: #c0392b;
-              }}
-              a {{
-                color: #4a90e2;
-                text-decoration: none;
-              }}
-              a:hover {{
-                text-decoration: underline;
-              }}
-            </style>
-          </head>
-          <body>
-            <h3>Error sending email: {e}</h3>
-            <p><a href='/'>Try again</a></p>
-          </body>
-        </html>
-        """
 
 @app.get("/track")
 async def track_email(request: Request, email: EmailStr):
@@ -284,6 +306,13 @@ async def view_logs():
     </html>
     """
     return html
+from fastapi.responses import FileResponse
+
+@app.get("/download-logs")
+async def download_logs():
+    if os.path.exists(DATA_FILE):
+        return FileResponse(DATA_FILE, media_type="application/json", filename="email_open_logs.json")
+    return {"error": "Log file not found."}
 
 
 if __name__ == "__main__":
