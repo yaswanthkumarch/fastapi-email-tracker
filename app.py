@@ -102,7 +102,7 @@ async def root():
 
 @app.post("/send-email", response_class=HTMLResponse)
 async def send_email(recipient_email: str = Form(...)):
-    tracking_url = f"http://localhost:5000/track?email={recipient_email}"
+    tracking_url = f"https://fastapi-email-tracker.onrender.com/track?email={recipient_email}"
     html_content = f"""
     <html>
       <body>
