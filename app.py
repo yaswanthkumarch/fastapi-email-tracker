@@ -7,6 +7,8 @@ import json
 import os
 import smtplib
 from email.message import EmailMessage
+import logging
+import uvicorn
 
 app = FastAPI()
 
@@ -20,12 +22,17 @@ SMTP_PORT = 587
 SMTP_USERNAME = "yaswanthkumarch2001@gmail.com"  # Replace with your Gmail address
 SMTP_PASSWORD = "wxsy qntv rwny zjgp"             # Replace with your Gmail App Password
 
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+)
+logger = logging.getLogger(__name__)
 
 # Ensure data file exists
 if not os.path.exists(DATA_FILE):
     with open(DATA_FILE, "w") as f:
         json.dump([], f)
-
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -99,10 +106,9 @@ async def root():
     </html>
     """
 
-
 @app.post("/send-email", response_class=HTMLResponse)
 async def send_email(recipient_email: str = Form(...)):
-    tracking_url = f"https://fastapi-email-tracker.onrender.com/track?email={recipient_email}"
+    tracking_url = f"http://127.0.0.1:8000/track?email={recipient_email}"
     html_content = f"""
     <html>
       <body>
@@ -125,6 +131,7 @@ async def send_email(recipient_email: str = Form(...)):
             server.starttls()
             server.login(SMTP_USERNAME, SMTP_PASSWORD)
             server.send_message(msg)
+        logger.info(f"Email sent successfully to {recipient_email}")
         return f"""
         <html>
           <head>
@@ -155,6 +162,7 @@ async def send_email(recipient_email: str = Form(...)):
         </html>
         """
     except Exception as e:
+        logger.error(f"Failed to send email to {recipient_email}: {e}")
         return f"""
         <html>
           <head>
@@ -184,12 +192,13 @@ async def send_email(recipient_email: str = Form(...)):
         </html>
         """
 
-
 @app.get("/track")
 async def track_email(request: Request, email: EmailStr):
     user_agent = request.headers.get("user-agent", "")
     ip = request.client.host
     timestamp = datetime.utcnow().isoformat()
+
+    logger.info(f"Email opened by {email} from IP {ip} with UA {user_agent}")
 
     with open(DATA_FILE, "r") as f:
         data = json.load(f)
@@ -206,9 +215,9 @@ async def track_email(request: Request, email: EmailStr):
 
     return Response(content=PIXEL_GIF, media_type="image/gif")
 
-
 @app.get("/logs", response_class=HTMLResponse)
 async def view_logs():
+    logger.info("Logs page viewed")
     with open(DATA_FILE, "r") as f:
         data = json.load(f)
 
@@ -274,3 +283,7 @@ async def view_logs():
     </html>
     """
     return html
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="127.0.0.1", port=8000)
