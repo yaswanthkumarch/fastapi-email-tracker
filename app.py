@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import Response, HTMLResponse
+from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi.responses import Response, HTMLResponse, FileResponse
 from pydantic import EmailStr
 from datetime import datetime
 import base64
@@ -9,10 +9,12 @@ import smtplib
 from email.message import EmailMessage
 import logging
 import uvicorn
+import uuid
 
 app = FastAPI()
 
 DATA_FILE = "/tmp/data.json"
+MAPPING_FILE = "/tmp/mapping.json"
 
 PIXEL_GIF_BASE64 = "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
 PIXEL_GIF = base64.b64decode(PIXEL_GIF_BASE64)
@@ -29,10 +31,14 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Ensure data file exists
+# Ensure data files exist
 if not os.path.exists(DATA_FILE):
     with open(DATA_FILE, "w") as f:
         json.dump([], f)
+if not os.path.exists(MAPPING_FILE):
+    with open(MAPPING_FILE, "w") as f:
+        json.dump({}, f)
+
 
 @app.get("/", response_class=HTMLResponse)
 async def root():
@@ -128,8 +134,26 @@ async def send_email(
     sent_to = []
     errors = []
 
+    # Load mapping
+    with open(MAPPING_FILE, "r") as f:
+        mapping = json.load(f)
+
     for recipient_email in recipients:
-        tracking_url = f"https://fastapi-email-tracker.onrender.com/track?email={recipient_email}"
+        unique_id = str(uuid.uuid4())
+
+        # Store mapping of unique_id to email and subject
+        mapping[unique_id] = {
+            "email": recipient_email,
+            "subject": subject,
+            "sent_at": datetime.utcnow().isoformat()
+        }
+
+        # Save mapping file
+        with open(MAPPING_FILE, "w") as f:
+            json.dump(mapping, f, indent=2)
+
+        # Create tracking URL with unique id
+        tracking_url = f"https://fastapi-email-tracker.onrender.com/track?id={unique_id}"
 
         # Append tracking pixel to body
         html_content = f"""
@@ -153,7 +177,7 @@ async def send_email(
                 server.starttls()
                 server.login(SMTP_USERNAME, SMTP_PASSWORD)
                 server.send_message(msg)
-            logger.info(f"Email sent successfully to {recipient_email}")
+            logger.info(f"Email sent successfully to {recipient_email} with id {unique_id}")
             sent_to.append(recipient_email)
         except Exception as e:
             logger.error(f"Failed to send email to {recipient_email}: {e}")
@@ -214,8 +238,9 @@ async def send_email(
       </body>
     </html>
     """
+
 @app.get("/track")
-async def track_email(request: Request, email: EmailStr):
+async def track_email(request: Request, id: str):
     user_agent = request.headers.get("user-agent", "").lower()
     ip = request.client.host
     timestamp = datetime.utcnow().isoformat()
@@ -239,13 +264,25 @@ async def track_email(request: Request, email: EmailStr):
         logger.info(f"Skipping bot/open scanner: {user_agent}")
         return Response(content=PIXEL_GIF, media_type="image/gif")
 
-    # ✅ Real open detected, log it
-    logger.info(f"Real email open from {email} @ {ip} (UA: {user_agent})")
+    # Load mapping to get email from id
+    with open(MAPPING_FILE, "r") as f:
+        mapping = json.load(f)
+
+    if id not in mapping:
+        logger.warning(f"Unknown tracking id: {id}")
+        # Return pixel anyway (avoid exposing info)
+        return Response(content=PIXEL_GIF, media_type="image/gif")
+
+    email = mapping[id]["email"]
+
+    # Log the open event
+    logger.info(f"Email open detected: id={id}, email={email}, IP={ip}, UA={user_agent}")
 
     with open(DATA_FILE, "r") as f:
         data = json.load(f)
 
     data.append({
+        "id": id,
         "email": email,
         "ip": ip,
         "user_agent": user_agent,
@@ -256,6 +293,7 @@ async def track_email(request: Request, email: EmailStr):
         json.dump(data, f, indent=2)
 
     return Response(content=PIXEL_GIF, media_type="image/gif")
+
 
 @app.get("/logs", response_class=HTMLResponse)
 async def view_logs():
@@ -315,7 +353,7 @@ async def view_logs():
 
     for entry in data:
         html += (
-            f"<li><strong>{entry['email']}</strong> opened at {entry['timestamp']} "
+            f"<li><strong>{entry['email']}</strong> (ID: {entry['id']}) opened at {entry['timestamp']} "
             f"from IP {entry['ip']} (User-Agent: {entry['user_agent']})</li>"
         )
     html += """
@@ -325,7 +363,7 @@ async def view_logs():
     </html>
     """
     return html
-from fastapi.responses import FileResponse
+
 
 @app.get("/download-logs")
 async def download_logs():
@@ -334,9 +372,6 @@ async def download_logs():
     return {"error": "Log file not found."}
 
 
-import os
-
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
-
