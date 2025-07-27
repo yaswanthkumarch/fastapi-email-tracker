@@ -214,14 +214,33 @@ async def send_email(
       </body>
     </html>
     """
-
 @app.get("/track")
 async def track_email(request: Request, email: EmailStr):
-    user_agent = request.headers.get("user-agent", "")
+    user_agent = request.headers.get("user-agent", "").lower()
     ip = request.client.host
     timestamp = datetime.utcnow().isoformat()
 
-    logger.info(f"Email opened by {email} from IP {ip} with UA {user_agent}")
+    # Block common bots/scanners
+    KNOWN_BOTS = [
+        "googleimageproxy",  # Gmail scanner
+        "outlook",           # Microsoft
+        "yahoo",             # Yahoo proxy
+        "bot",               # generic bots
+        "curl",              # terminal tools
+        "python",            # script calls
+        "fetch",             # programmatic access
+        "httpclient",        # test clients
+        "postman",           # API testers
+        "java",              # bots
+    ]
+
+    # Skip logging if it’s a known bot
+    if any(bot in user_agent for bot in KNOWN_BOTS):
+        logger.info(f"Skipping bot/open scanner: {user_agent}")
+        return Response(content=PIXEL_GIF, media_type="image/gif")
+
+    # ✅ Real open detected, log it
+    logger.info(f"Real email open from {email} @ {ip} (UA: {user_agent})")
 
     with open(DATA_FILE, "r") as f:
         data = json.load(f)
