@@ -12,7 +12,7 @@ import uvicorn
 
 app = FastAPI()
 
-DATA_FILE = "data.json"
+DATA_FILE = "/tmp/data.json"
 
 PIXEL_GIF_BASE64 = "R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw=="
 PIXEL_GIF = base64.b64decode(PIXEL_GIF_BASE64)
