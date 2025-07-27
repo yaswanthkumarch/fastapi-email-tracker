@@ -4,7 +4,8 @@ from pydantic import EmailStr
 from datetime import datetime
 import base64
 import json
-import os
+import os 
+from user_agents import parse
 import smtplib
 from email.message import EmailMessage
 import logging
