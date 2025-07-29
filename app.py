@@ -123,16 +123,41 @@ async def track_email(request: Request, id: str):
     ip = request.client.host
     timestamp = datetime.utcnow().isoformat()
 
-    # Bot Filter
+    # Expanded list of known bot substrings (case-insensitive)
     KNOWN_BOTS = [
-        "googleimageproxy", "outlook", "yahoo", "bot",
-        "curl", "python", "fetch", "httpclient", "postman", "java"
+        "googleimageproxy",  # Google Image Proxy used by Gmail, Google apps
+        "outlook",           # Outlook image proxy / crawler
+        "yahoo",             # Yahoo mail proxy / crawler
+        "bingbot",           # Bing search engine bot
+        "facebookexternalhit", # Facebook crawler
+        "twitterbot",        # Twitter crawler
+        "linkedinbot",       # LinkedIn crawler
+        "slackbot",          # Slack crawler
+        "telegrambot",       # Telegram crawler
+        "applebot",          # Apple crawler
+        "discordbot",        # Discord crawler
+        "bot",               # Generic bot keyword to catch many bots
+        "spider",            # Generic spider keyword
+        "crawl",             # Generic crawler keyword
+        "curl",              # curl command line tool
+        "wget",              # wget command line tool
+        "python",            # Python scripts
+        "java",              # Java HTTP clients
+        "httpclient",        # Generic HTTP client keyword
+        "fetch",             # fetch API bots
+        "postman",           # Postman API tool
+        "monitor",           # Monitoring tools
+        "scan",              # Scanners
+        "validator",         # HTML or SEO validators
+        "scrapy",            # Scrapy spider
+        "php",               # PHP-based bots or clients
+        "axios",             # Axios HTTP client
     ]
+
     if any(bot in user_agent for bot in KNOWN_BOTS):
         logger.info(f"Ignored bot access: {user_agent}")
         return Response(content=PIXEL_GIF, media_type="image/gif")
 
-    # Validate ID
     with open(MAPPING_FILE, "r") as f:
         mapping = json.load(f)
 
